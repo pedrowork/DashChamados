@@ -7,6 +7,15 @@ from streamlit_plotly_events import plotly_events
 from datetime import datetime, date, timedelta
 import os
 import numpy as np
+import io
+import calendar
+
+# Carregar variáveis de ambiente do arquivo .env (se disponível)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 # Configuração do dashboard
 
@@ -141,29 +150,58 @@ if st.sidebar.button("🚪 Logout"):
 # Carregar dados
 @st.cache_data
 
-def load_data():
+def load_data(uploaded_bytes=None):
     """
-    Carrega o arquivo glpi.csv da raiz do projeto
+    Carrega dados do GLPI a partir de upload do usuário ou do arquivo local glpi.csv
     """
+    # 1) Se o usuário enviou um arquivo, usar o upload
+    if uploaded_bytes is not None:
+        try:
+            df = pd.read_csv(io.StringIO(uploaded_bytes.decode('utf-8-sig')), sep=';')
+            
+            # Converter colunas de data aceitando '/' ou '-' e dia primeiro
+            if 'Data Abertura' in df.columns:
+                df['Data Abertura Datetime'] = pd.to_datetime(df['Data Abertura'], dayfirst=True, errors='coerce')
+            
+            if 'Data Atualização' in df.columns:
+                df['Data Atualização Datetime'] = pd.to_datetime(df['Data Atualização'], dayfirst=True, errors='coerce')
+            
+            if 'Data SLA' in df.columns:
+                df['Data SLA Datetime'] = pd.to_datetime(df['Data SLA'], dayfirst=True, errors='coerce')
+            
+            # Calcular tempo de resolução em horas
+            if 'Data Abertura Datetime' in df.columns and 'Data Atualização Datetime' in df.columns:
+                df['Tempo Resolução (h)'] = (df['Data Atualização Datetime'] - df['Data Abertura Datetime']).dt.total_seconds() / 3600
+            
+            # Limpar e padronizar categorias
+            if 'Categoria' in df.columns:
+                df['Categoria Limpa'] = df['Categoria'].str.replace('SETOR DE INFORMATICA > ', '', regex=False).str.replace('SETOR DE INFORMATICA', 'OUTROS')
+            
+            return df
+        except Exception as e:
+            st.error(f"❌ Erro ao ler arquivo enviado: {e}")
+            return pd.DataFrame()
+
+    # 2) Caso não haja upload, tentar arquivo local
     file_path = "glpi.csv"
-    
+
     if not os.path.exists(file_path):
-        st.error(f"❌ Arquivo {file_path} não encontrado na raiz do projeto!")
+        st.error("❌ Nenhum arquivo encontrado. Faça upload do glpi.csv na barra lateral.")
         return pd.DataFrame()
 
     try:
         # Ler arquivo CSV
         df = pd.read_csv(file_path, sep=';', encoding='utf-8-sig')
         
-        # Converter colunas de data (formato DD-MM-YYYY)
+        # Converter colunas de data aceitando '/' ou '-' e dia primeiro
         if 'Data Abertura' in df.columns:
-            df['Data Abertura Datetime'] = pd.to_datetime(df['Data Abertura'], format='%d-%m-%Y', errors='coerce')
+            df['Data Abertura Datetime'] = pd.to_datetime(df['Data Abertura'], dayfirst=True, errors='coerce')
         
         if 'Data Atualização' in df.columns:
-            df['Data Atualização Datetime'] = pd.to_datetime(df['Data Atualização'], format='%d-%m-%Y', errors='coerce')
+            df['Data Atualização Datetime'] = pd.to_datetime(df['Data Atualização'], dayfirst=True, errors='coerce')
         
         if 'Data SLA' in df.columns:
-            df['Data SLA Datetime'] = pd.to_datetime(df['Data SLA'], format='%d-%m-%Y', errors='coerce')
+            df['Data SLA Datetime'] = pd.to_datetime(df['Data SLA'], dayfirst=True, errors='coerce')
         
         # Calcular tempo de resolução em horas
         if 'Data Abertura Datetime' in df.columns and 'Data Atualização Datetime' in df.columns:
@@ -179,8 +217,16 @@ def load_data():
         st.error(f"❌ Erro ao carregar dados: {e}")
         return pd.DataFrame()
 
-# Carregar dados do arquivo local
-df = load_data()
+# Upload de dados
+st.sidebar.markdown("### 📤 Upload de Dados")
+uploaded_file = st.sidebar.file_uploader(
+    "Carregue o arquivo glpi.csv",
+    type=["csv"],
+    help="Selecione o CSV exportado do GLPI (separador ';' e codificação UTF-8)."
+)
+
+# Carregar dados a partir do upload (ou do arquivo local se nenhum upload for feito)
+df = load_data(uploaded_file.getvalue() if uploaded_file is not None else None)
 
 # Inicializar variáveis de sessão para filtros interativos
 if 'filtro_status' not in st.session_state:
@@ -197,41 +243,50 @@ st.sidebar.header("🔍 Filtros de Análise")
 if not df.empty:
     # Filtro por período
 
+    date_range = []
     if 'Data Abertura Datetime' in df.columns:
-        min_date = df['Data Abertura Datetime'].min().date()
-        max_date = df['Data Abertura Datetime'].max().date()
-        
-        # Definir período padrão baseado nos dados disponíveis
-        hoje = date.today()
-        primeiro_dia_mes = date(hoje.year, hoje.month, 1)
-        ultimo_dia_mes = date(hoje.year, hoje.month + 1, 1) - timedelta(days=1)
-        
-        # Verificar se o mês atual está dentro do range dos dados
-        if primeiro_dia_mes >= min_date and ultimo_dia_mes <= max_date:
-            # Usar mês atual como padrão
-            periodo_padrao = [primeiro_dia_mes, ultimo_dia_mes]
+        datas_validas = df['Data Abertura Datetime'].dropna()
+        if not datas_validas.empty:
+            min_date = datas_validas.min().date()
+            max_date = datas_validas.max().date()
+            
+            # Definir período padrão baseado nos dados disponíveis
+            hoje = date.today()
+            primeiro_dia_mes = date(hoje.year, hoje.month, 1)
+            ultimo_dia_mes = date(hoje.year, hoje.month, calendar.monthrange(hoje.year, hoje.month)[1])
+            
+            # Verificar se o mês atual está dentro do range dos dados
+            if primeiro_dia_mes >= min_date and ultimo_dia_mes <= max_date:
+                # Usar mês atual como padrão
+                periodo_padrao = [primeiro_dia_mes, ultimo_dia_mes]
+            else:
+                # Usar último mês disponível como padrão
+                if max_date.month == 1:
+                    ultimo_mes = date(max_date.year - 1, 12, 1)
+                else:
+                    ultimo_mes = date(max_date.year, max_date.month - 1, 1)
+                
+                ultimo_dia_ultimo_mes = date(
+                    ultimo_mes.year,
+                    ultimo_mes.month,
+                    calendar.monthrange(ultimo_mes.year, ultimo_mes.month)[1]
+                )
+                
+                periodo_padrao = [ultimo_mes, ultimo_dia_ultimo_mes]
+            
+            # Usar período padrão, mas permitir alteração
+            date_range = st.sidebar.date_input(
+                "📅 Período de análise",
+                periodo_padrao,
+                min_value=min_date,
+                max_value=max_date,
+                help="Período padrão baseado nos dados disponíveis. Clique para alterar se necessário."
+            )
         else:
-            # Usar último mês disponível como padrão
-            if max_date.month == 1:
-                ultimo_mes = date(max_date.year - 1, 12, 1)
-            else:
-                ultimo_mes = date(max_date.year, max_date.month - 1, 1)
-            
-            if ultimo_mes.month == 12:
-                ultimo_dia_ultimo_mes = date(ultimo_mes.year + 1, 1, 1) - timedelta(days=1)
-            else:
-                ultimo_dia_ultimo_mes = date(ultimo_mes.year, ultimo_mes.month + 1, 1) - timedelta(days=1)
-            
-            periodo_padrao = [ultimo_mes, ultimo_dia_ultimo_mes]
-        
-        # Usar período padrão, mas permitir alteração
-        date_range = st.sidebar.date_input(
-            "📅 Período de análise",
-            periodo_padrao,
-            min_value=min_date,
-            max_value=max_date,
-            help="Período padrão baseado nos dados disponíveis. Clique para alterar se necessário."
-        )
+            st.sidebar.info("📅 Datas de abertura inválidas ou ausentes. Filtro de período desativado.")
+            date_range = []
+    else:
+        st.sidebar.info("📅 Coluna de data não encontrada. Filtro de período desativado.")
     
     # Filtro por técnico
     tecnicos = ['Todos'] + sorted(df['Atribuído - Técnico'].dropna().unique().tolist())
@@ -304,9 +359,13 @@ if df.empty:
 # Mostrar informações dos dados
 st.markdown(f"**📊 Total de registros:** {len(df):,} chamados")
 if 'Data Abertura Datetime' in df.columns:
-    min_date = df['Data Abertura Datetime'].min().date()
-    max_date = df['Data Abertura Datetime'].max().date()
-    st.markdown(f"**📅 Período:** {min_date.strftime('%d/%m/%Y')} a {max_date.strftime('%d/%m/%Y')}")
+    datas_validas_info = df['Data Abertura Datetime'].dropna()
+    if not datas_validas_info.empty:
+        min_date = datas_validas_info.min().date()
+        max_date = datas_validas_info.max().date()
+        st.markdown(f"**📅 Período:** {min_date.strftime('%d/%m/%Y')} a {max_date.strftime('%d/%m/%Y')}")
+    else:
+        st.markdown("**📅 Período:** Dados de data ausentes/invalidos")
 
 # Iniciar visualizações
 if True:
@@ -1268,31 +1327,43 @@ if True:
             media_tempo_resolucao = df_filtered['Tempo Resolução (h)'].mean()
             
             # Cálculo de técnicos necessários (assumindo 160h/mês por técnico)
-            horas_totais_mes = media_chamados_mes * media_tempo_resolucao
-            tecnicos_necessarios = np.ceil(horas_totais_mes / 160)
+            if pd.isna(media_chamados_mes) or pd.isna(media_tempo_resolucao):
+                horas_totais_mes = np.nan
+                tecnicos_necessarios = np.nan
+            else:
+                horas_totais_mes = media_chamados_mes * media_tempo_resolucao
+                tecnicos_necessarios = np.ceil(horas_totais_mes / 160)
             tecnicos_atuais = df_filtered['Atribuído - Técnico'].nunique()
             
             st.subheader("🎯 Necessidade de Recursos")
             st.metric("👥 Técnicos Atuais", f"{tecnicos_atuais}")
-            st.metric("📊 Técnicos Sugeridos", f"{int(tecnicos_necessarios)}", 
-                     delta=f"{int(tecnicos_necessarios - tecnicos_atuais)}")
-            st.metric("⏱️ Horas/Mês Estimadas", f"{horas_totais_mes:.0f}h")
-            st.metric("📞 Média Chamados/Mês", f"{media_chamados_mes:.0f}")
+            if pd.isna(tecnicos_necessarios):
+                st.metric("📊 Técnicos Sugeridos", "N/A")
+                st.metric("⏱️ Horas/Mês Estimadas", "N/A")
+                st.metric("📞 Média Chamados/Mês", f"{media_chamados_mes:.0f}" if not pd.isna(media_chamados_mes) else "N/A")
+            else:
+                st.metric("📊 Técnicos Sugeridos", f"{int(tecnicos_necessarios)}", 
+                         delta=f"{int(tecnicos_necessarios - tecnicos_atuais)}")
+                st.metric("⏱️ Horas/Mês Estimadas", f"{horas_totais_mes:.0f}h")
+                st.metric("📞 Média Chamados/Mês", f"{media_chamados_mes:.0f}")
             
             # Gráfico de capacidade
-            fig_capacidade = go.Figure()
-            fig_capacidade.add_trace(go.Bar(
-                x=['Capacidade Atual', 'Demanda Real', 'Capacidade Ideal'],
-                y=[tecnicos_atuais * 20, media_chamados_mes, tecnicos_necessarios * 20],
-                marker_color=['#28a745', '#ffc107', '#007bff'],
-                text=[f"{tecnicos_atuais * 20:.0f}", f"{media_chamados_mes:.0f}", f"{tecnicos_necessarios * 20:.0f}"],
-                textposition='outside'
-            ))
-            fig_capacidade.update_layout(
-                title="📊 Análise de Capacidade (Chamados/Mês)",
-                yaxis_title="Chamados"
-            )
-            st.plotly_chart(fig_capacidade, use_container_width=True)
+            if not pd.isna(tecnicos_necessarios) and not pd.isna(media_chamados_mes):
+                fig_capacidade = go.Figure()
+                fig_capacidade.add_trace(go.Bar(
+                    x=['Capacidade Atual', 'Demanda Real', 'Capacidade Ideal'],
+                    y=[tecnicos_atuais * 20, media_chamados_mes, tecnicos_necessarios * 20],
+                    marker_color=['#28a745', '#ffc107', '#007bff'],
+                    text=[f"{tecnicos_atuais * 20:.0f}", f"{media_chamados_mes:.0f}", f"{tecnicos_necessarios * 20:.0f}"],
+                    textposition='outside'
+                ))
+                fig_capacidade.update_layout(
+                    title="📊 Análise de Capacidade (Chamados/Mês)",
+                    yaxis_title="Chamados"
+                )
+                st.plotly_chart(fig_capacidade, use_container_width=True)
+            else:
+                st.info("🔎 Sem dados suficientes para o gráfico de capacidade.")
         
         st.markdown("---")
         
