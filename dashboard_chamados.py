@@ -58,10 +58,8 @@ st.markdown("""
         display: none !important;
     }
     
-    /* Esconder header do Streamlit */
-    header {
-        visibility: hidden !important;
-    }
+    /* Header visível para permitir o toggle da sidebar em telas pequenas */
+    /* header { visibility: hidden !important; } */
 </style>
 """, unsafe_allow_html=True)
 
