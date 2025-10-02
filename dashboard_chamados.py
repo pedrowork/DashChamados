@@ -58,6 +58,10 @@ st.markdown("""
         display: none !important;
     }
     
+    /* Esconder toolbar da direita (Share, Star, Edit, GitHub) */
+    .stApp header [data-testid="stToolbar"] {
+        display: none !important;
+    }
     /* Header visível para permitir o toggle da sidebar em telas pequenas */
     /* header { visibility: hidden !important; } */
 </style>
@@ -73,7 +77,7 @@ def check_login():
         st.markdown("""
         <div style="text-align: center; padding: 50px;">
             <h1>🔐 Dashboard HMSI - Login</h1>
-            <p style="font-size: 18px; color: #666;">Acesso restrito a usuários autorizados</p>
+            <p style="font-size: 18px; color: #666;">Acesso restrito a usuários autorizados <br> Caso não tenha acesso, fazer doação para Aurora e solicitar para o desenvolvedor para fazer a analise</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -103,19 +107,27 @@ def check_login():
                         return False
         
         # QR abaixo do login (centralizado)
-        st.markdown("---")
-        c1, c2, c3 = st.columns([1, 1, 1])
+        c1, c2, c1 = st.columns([1, 1, 1]) # largura 2 para o QR e 1 para o texto do QR e 1 para o espaço
         with c2:
             try:
-                st.image("doação.jpeg", width=120, caption="PIX - Aurora")
+                base_dir = os.path.dirname(__file__)
+                candidates = [os.path.join(base_dir, "doacao.jpeg"),
+                            os.path.join(base_dir, "doação.jpeg")]
+                img_path = next((p for p in candidates if os.path.exists(p)), None)
+
+                if img_path:
+                    st.image(img_path, width=120, caption="PIX - 💝 Apoie esse projeto para Aurora e Deus te abençoe 🥰")
+                else:
+                    st.info("Imagem do QR não encontrada na raiz do projeto.")
             except Exception:
                 pass
-        
+
         # QR também na barra lateral
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("💝 Apoie a Aurora")
+        st.sidebar.subheader("🤩 Você já conhece a Aurora?\nPrecisa conhecer que princesa 🥰")
         try:
-            st.sidebar.image("doação.jpeg", width=120, caption="PIX - Aurora")
+            if img_path:
+                st.sidebar.image(img_path, width=180,
+                                caption="PIX - 💝 Apoie esse projeto para Aurora e Deus te abençoe 🥰")
         except Exception:
             pass
         
@@ -355,15 +367,19 @@ if df.empty:
     st.stop()
 
 # Mostrar informações dos dados
-st.markdown(f"**📊 Total de registros:** {len(df):,} chamados")
+periodo_txt = ""
 if 'Data Abertura Datetime' in df.columns:
     datas_validas_info = df['Data Abertura Datetime'].dropna()
     if not datas_validas_info.empty:
         min_date = datas_validas_info.min().date()
         max_date = datas_validas_info.max().date()
-        st.markdown(f"**📅 Período:** {min_date.strftime('%d/%m/%Y')} a {max_date.strftime('%d/%m/%Y')}")
+        periodo_txt = f" | **📅 Período:** {min_date.strftime('%d/%m/%Y')} a {max_date.strftime('%d/%m/%Y')}"
     else:
-        st.markdown("**📅 Período:** Dados de data ausentes/invalidos")
+        periodo_txt = " | **📅 Período:** Dados de data ausentes/invalidos"
+
+st.markdown(f"**📊 Total de registros:** {len(df):,} chamados{periodo_txt}")
+
+st.link_button("📄 Baixar base de dados e importar no projeto", "https://drive.google.com/file/d/1iVUn2XvAvNz27TBHmDmE9ivZgUpnmALX/view?usp=sharing")
 
 # Iniciar visualizações
 if True:
@@ -431,9 +447,13 @@ if True:
             fig_status.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_status, use_container_width=True)
             
-            st.metric("Fechados", f"{fechados:.1f}%", delta=f"{status_counts.get('Fechado', 0)} chamados")
-            st.metric("Solucionados", f"{solucionados:.1f}%", delta=f"{status_counts.get('Solucionado', 0)} chamados")
-            st.metric("Pendentes", f"{pendentes:.1f}%", delta=f"{status_counts.get('Pendente', 0)} chamados")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Fechados", f"{fechados:.1f}%", delta=f"{status_counts.get('Fechado', 0)} chamados")
+            with c2:
+                st.metric("Solucionados", f"{solucionados:.1f}%", delta=f"{status_counts.get('Solucionado', 0)} chamados")
+            with c3:
+                st.metric("Pendentes", f"{pendentes:.1f}%", delta=f"{status_counts.get('Pendente', 0)} chamados")
         
         with col_kpi2:
             st.subheader("⏱️ Tempo Médio de Resolução")
@@ -462,9 +482,13 @@ if True:
             ))
             st.plotly_chart(fig_tempo, use_container_width=True)
             
-            st.metric("Média", f"{tempo_stats['mean']:.1f}h" if not pd.isna(tempo_stats['mean']) else "N/A")
-            st.metric("Mediana", f"{tempo_stats['50%']:.1f}h" if not pd.isna(tempo_stats['50%']) else "N/A")
-            st.metric("Máximo", f"{tempo_stats['max']:.1f}h" if not pd.isna(tempo_stats['max']) else "N/A")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Média", f"{tempo_stats['mean']:.1f}h" if not pd.isna(tempo_stats['mean']) else "N/A")
+            with c2:
+                st.metric("Mediana", f"{tempo_stats['50%']:.1f}h" if not pd.isna(tempo_stats['50%']) else "N/A")
+            with c3:
+                st.metric("Máximo", f"{tempo_stats['max']:.1f}h" if not pd.isna(tempo_stats['max']) else "N/A")
         
         with col_kpi3:
             st.subheader("📈 SLA Compliance")
@@ -488,8 +512,11 @@ if True:
             )
             st.plotly_chart(fig_sla, use_container_width=True)
             
-            st.metric("✅ Dentro do SLA", f"{sla_percent:.1f}%", delta=f"{dentro_sla_count} chamados")
-            st.metric("❌ Fora do SLA", f"{100-sla_percent:.1f}%", delta=f"{fora_sla_count} chamados", delta_color="inverse")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("✅ Dentro do SLA", f"{sla_percent:.1f}%", delta=f"{dentro_sla_count} chamados")
+            with c2:
+                st.metric("❌ Fora do SLA", f"{100-sla_percent:.1f}%", delta=f"{fora_sla_count} chamados", delta_color="inverse")
         
         st.markdown("---")
         
@@ -1334,16 +1361,24 @@ if True:
             tecnicos_atuais = df_filtered['Atribuído - Técnico'].nunique()
             
             st.subheader("🎯 Necessidade de Recursos")
-            st.metric("👥 Técnicos Atuais", f"{tecnicos_atuais}")
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("👥 Técnicos Atuais", f"{tecnicos_atuais}")
             if pd.isna(tecnicos_necessarios):
-                st.metric("📊 Técnicos Sugeridos", "N/A")
-                st.metric("⏱️ Horas/Mês Estimadas", "N/A")
-                st.metric("📞 Média Chamados/Mês", f"{media_chamados_mes:.0f}" if not pd.isna(media_chamados_mes) else "N/A")
+                with c2:
+                    st.metric("📊 Técnicos Sugeridos", "N/A")
+                with c3:
+                    st.metric("⏱️ Horas/Mês Estimadas", "N/A")
+                with c4:
+                    st.metric("📞 Média Chamados/Mês", f"{media_chamados_mes:.0f}" if not pd.isna(media_chamados_mes) else "N/A")
             else:
-                st.metric("📊 Técnicos Sugeridos", f"{int(tecnicos_necessarios)}", 
+                with c2:
+                    st.metric("📊 Técnicos Sugeridos", f"{int(tecnicos_necessarios)}", 
                          delta=f"{int(tecnicos_necessarios - tecnicos_atuais)}")
-                st.metric("⏱️ Horas/Mês Estimadas", f"{horas_totais_mes:.0f}h")
-                st.metric("📞 Média Chamados/Mês", f"{media_chamados_mes:.0f}")
+                with c3:
+                    st.metric("⏱️ Horas/Mês Estimadas", f"{horas_totais_mes:.0f}h")
+                with c4:
+                    st.metric("📞 Média Chamados/Mês", f"{media_chamados_mes:.0f}")
             
             # Gráfico de capacidade
             if not pd.isna(tecnicos_necessarios) and not pd.isna(media_chamados_mes):
@@ -1394,26 +1429,28 @@ if True:
     # ====================================================================
     with tab10:
         st.header("✅ Análise de Qualidade dos Chamados")
-        
-        # Taxa de primeira resolução
-        st.subheader("🎯 Taxa de Primeira Resolução")
-        
+
+        # Primeira resolução (esquerda) | Qualidade da descrição (direita)
         col_qual1, col_qual2 = st.columns(2)
-        
+
         with col_qual1:
-            # Estimativa de retrabalho (mesmo usuário, mesma categoria, intervalo curto)
+            st.subheader("🎯 Taxa de Primeira Resolução")
             df_retrabalho = df_filtered.sort_values('Data Abertura Datetime')
-            df_retrabalho['Possível Retrabalho'] = (
-                df_retrabalho.duplicated(subset=['Requerente - Requerente', 'Categoria Limpa'], keep=False)
+            df_retrabalho['Possível Retrabalho'] = df_retrabalho.duplicated(
+                subset=['Requerente - Requerente', 'Categoria Limpa'], keep=False
             )
-            
-            retrabalho_count = df_retrabalho['Possível Retrabalho'].sum()
-            taxa_primeira_resolucao = ((len(df_filtered) - retrabalho_count) / len(df_filtered)) * 100
-            
-            st.metric("✅ Taxa de Primeira Resolução", f"{taxa_primeira_resolucao:.1f}%")
-            st.metric("🔄 Possível Retrabalho", f"{retrabalho_count} chamados")
-            
-            # Gráfico
+            retrabalho_count = int(df_retrabalho['Possível Retrabalho'].sum())
+            taxa_primeira_resolucao = (
+                ((len(df_filtered) - retrabalho_count) / len(df_filtered)) * 100
+                if len(df_filtered) > 0 else 0
+            )
+
+            m1, m2 = st.columns(2)
+            with m1:
+                st.metric("✅ Primeira Resolução", f"{taxa_primeira_resolucao:.1f}%")
+            with m2:
+                st.metric("🔄 Possível Retrabalho", f"{retrabalho_count}")
+
             fig_retrab = go.Figure(data=[
                 go.Pie(
                     labels=['Primeira Resolução', 'Possível Retrabalho'],
@@ -1424,17 +1461,16 @@ if True:
             ])
             fig_retrab.update_layout(title="🎯 Taxa de Primeira Resolução")
             st.plotly_chart(fig_retrab, use_container_width=True)
-        
+
         with col_qual2:
-            # Qualidade da descrição
+            st.subheader("✍️ Qualidade das Descrições")
             df_filtered['Tamanho Título'] = df_filtered['Título'].str.len()
             df_filtered['Qualidade Desc'] = df_filtered['Tamanho Título'].apply(
                 lambda x: 'Boa (>20 chars)' if x > 20 else 'Ruim (≤20 chars)' if pd.notna(x) else 'N/A'
             )
-            
             qual_desc = df_filtered['Qualidade Desc'].value_counts().reset_index()
             qual_desc.columns = ['Qualidade', 'Quantidade']
-            
+
             fig_qual = px.pie(
                 qual_desc,
                 values='Quantidade',
@@ -1445,23 +1481,24 @@ if True:
             )
             fig_qual.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_qual, use_container_width=True)
-            
-            pct_boa = (qual_desc[qual_desc['Qualidade'] == 'Boa (>20 chars)']['Quantidade'].sum() / len(df_filtered)) * 100
+
+            pct_boa = (
+                qual_desc[qual_desc['Qualidade'] == 'Boa (>20 chars)']['Quantidade'].sum() / len(df_filtered) * 100
+                if len(df_filtered) > 0 else 0
+            )
             st.metric("✅ Descrições Detalhadas", f"{pct_boa:.1f}%")
-        
+
         st.markdown("---")
-        
-        # Chamados duplicados
+
+        # Duplicados
         st.subheader("🔄 Análise de Chamados Duplicados")
-        
-        # Duplicados: mesmo título, mesma localização, período próximo
         df_dup = df_filtered.groupby(['Título', 'Localização']).agg({
             'ID': 'count',
             'Categoria Limpa': 'first'
         }).reset_index()
         df_dup = df_dup[df_dup['ID'] > 1].sort_values('ID', ascending=False).head(20)
         df_dup.columns = ['Título', 'Localização', 'Repetições', 'Categoria']
-        
+
         if len(df_dup) > 0:
             fig_dup = px.bar(
                 df_dup,
@@ -1476,7 +1513,6 @@ if True:
             )
             fig_dup.update_traces(textposition='outside')
             st.plotly_chart(fig_dup, use_container_width=True)
-            
             st.dataframe(df_dup, use_container_width=True)
         else:
             st.success("✅ Nenhum chamado duplicado identificado!")
